@@ -7,33 +7,79 @@ import (
 	"time"
 )
 
-// DocMeta holds metadata for a stored document.
-type DocMeta struct {
-	ID          string    `json:"id"`
-	OrigName    string    `json:"orig_name"`
-	ContentType string    `json:"content_type"`
-	Size        int64     `json:"size"`
-	SHA256      string    `json:"sha256"`
-	UploadedAt  time.Time `json:"uploaded_at"`
+type MetaFileItem struct {
+	RelPath   string `json:"rel_path"`
+	Sha256    string `json:"sha256"`
+	Size      int64  `json:"size"`
+	Ext       string `json:"ext"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
-func metaPath(rootDir, id string) string {
-	return filepath.Join(docsDir(rootDir), id+".meta.json")
+type Meta struct {
+	Status    string         `json:"status"`     // idle/running/success/failed
+	LastError string         `json:"last_error"`
+	Files     []MetaFileItem `json:"files"`
+	UpdatedAt int64          `json:"updated_at"`
 }
 
-func writeMeta(rootDir string, m DocMeta) error {
-	data, err := json.MarshalIndent(m, "", "  ")
+func metaPath(teacherDir string) string {
+	return filepath.Join(teacherDir, "meta.json")
+}
+
+func MetaLoad(teacherDir string) (*Meta, error) {
+	p := metaPath(teacherDir)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		// 不存在则返回默认
+		if os.IsNotExist(err) {
+			return &Meta{Status: "idle", Files: make([]MetaFileItem, 0), UpdatedAt: time.Now().Unix()}, nil
+		}
+		return nil, err
+	}
+
+	var m Meta
+	if err := json.Unmarshal(b, &m); err != nil {
+		// 解析失败也给默认，避免全挂
+		return &Meta{Status: "idle", Files: make([]MetaFileItem, 0), UpdatedAt: time.Now().Unix()}, nil
+	}
+	if m.Files == nil {
+		m.Files = make([]MetaFileItem, 0)
+	}
+	return &m, nil
+}
+
+func MetaSave(teacherDir string, m *Meta) error {
+	m.UpdatedAt = time.Now().Unix()
+	b, _ := json.MarshalIndent(m, "", "  ")
+	return WriteFileAtomic(metaPath(teacherDir), b, 0o644)
+}
+
+func MetaSetStatus(teacherDir, status, lastErr string) error {
+	m, err := MetaLoad(teacherDir)
 	if err != nil {
 		return err
 	}
-	return atomicWrite(metaPath(rootDir, m.ID), data, 0o644)
+	m.Status = status
+	m.LastError = lastErr
+	return MetaSave(teacherDir, m)
 }
 
-func readMeta(rootDir, id string) (DocMeta, error) {
-	data, err := os.ReadFile(metaPath(rootDir, id))
+func MetaUpsertFile(teacherDir string, item MetaFileItem) error {
+	m, err := MetaLoad(teacherDir)
 	if err != nil {
-		return DocMeta{}, err
+		return err
 	}
-	var m DocMeta
-	return m, json.Unmarshal(data, &m)
+
+	found := false
+	for i := range m.Files {
+		if m.Files[i].RelPath == item.RelPath {
+			m.Files[i] = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		m.Files = append(m.Files, item)
+	}
+	return MetaSave(teacherDir, m)
 }
