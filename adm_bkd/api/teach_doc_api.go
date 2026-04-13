@@ -291,12 +291,11 @@ func TeachAnalyzeCreate(ctx iris.Context) {
 
 	// 1) parsed：这里先做 stub（后续可接真实解析器）
 	// 说明：你可以把 pdf/docx/xlsx 转文本的逻辑放在 storage.ParseToText(...) 中
-	if err := storage.ParseToTextStub(teacherDir, req.RelPaths); err != nil {
-		_ = storage.MetaSetStatus(teacherDir, "failed", err.Error())
-		ctx.JSON(apiresult.NewAPIResult(errmgr.Err_storage_write_failed, nil))
-		return
-	}
-
+	if err := storage.ParseToText(teacherDir, req.RelPaths); err != nil {
+    _ = storage.MetaSetStatus(teacherDir, "failed", err.Error())
+    ctx.JSON(apiresult.NewAPIResult(errmgr.Err_storage_write_failed, nil))
+    return
+}
 	// 2) 转发 AI 服务（沿用你现有 aiServer.apiUrl）
 	aiSrv := config.GlobalConfig.GetAiServer()
 
