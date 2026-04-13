@@ -7,21 +7,36 @@ import (
 	"os"
 )
 
-// hashFile computes the SHA-256 hex digest of the file at path.
-func hashFile(path string) (string, error) {
-	f, err := os.Open(path)
+// SaveMultipartFileWithHash 将 reader 内容写到 dstAbs，并返回 sha256
+func SaveMultipartFileWithHash(dstAbs string, r io.Reader) (string, error) {
+	if err := os.MkdirAll(filepathDir(dstAbs), 0o755); err != nil {
+		return "", err
+	}
+
+	out, err := os.Create(dstAbs)
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-	return hashReader(f)
-}
+	defer out.Close()
 
-// hashReader computes the SHA-256 hex digest from an io.Reader.
-func hashReader(r io.Reader) (string, error) {
 	h := sha256.New()
-	if _, err := io.Copy(h, r); err != nil {
+	w := io.MultiWriter(out, h)
+
+	if _, err := io.Copy(w, r); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func filepathDir(p string) string {
+	i := len(p) - 1
+	for ; i >= 0; i-- {
+		if p[i] == '/' || p[i] == '\\' {
+			break
+		}
+	}
+	if i <= 0 {
+		return "."
+	}
+	return p[:i]
 }
