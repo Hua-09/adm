@@ -328,20 +328,24 @@ func TeachAnalyzeCreate(ctx iris.Context) {
 		return
 	}
 
-	// 尝试解析 Python 返回：期望它可能返回 { "md": "...", "files_json": {...} }
-	var aiObj map[string]interface{}
-	_ = json.Unmarshal(aiRespBytes, &aiObj)
+	// Python 负责直接落盘：ai_result/综合分析.md 与 ai_result/各文件分析.json
+mdPath := filepath.Join(teacherDir, "ai_result", "综合分析.md")
+jsonPath := filepath.Join(teacherDir, "ai_result", "各文件分析.json")
 
-	mdPath := filepath.Join(teacherDir, "ai_result", "综合分析.md")
-	jsonPath := filepath.Join(teacherDir, "ai_result", "各文件分析.json")
+// 允许 Python 异步写入：这里简单轮询等待一小段时间（可调）
+waitOk := storage.WaitFiles(mdPath, jsonPath, 60*time.Second)
+if !waitOk {
+    _ = storage.MetaSetStatus(teacherDir, "failed", "AI结果文件未在超时内生成")
+    ctx.JSON(apiresult.NewAPIResult(errmgr.Err_ai_forward_resp_parse, nil))
+    return
+}
 
-	if v, ok := aiObj["md"].(string); ok && strings.TrimSpace(v) != "" {
-		_ = storage.WriteFileAtomic(mdPath, []byte(v), 0o644)
-	}
-	if v, ok := aiObj["files_json"]; ok {
-		b, _ := json.MarshalIndent(v, "", "  ")
-		_ = storage.WriteFileAtomic(jsonPath, b, 0o644)
-	}
+_ = storage.MetaSetStatus(teacherDir, "success", "")
+ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, map[string]interface{}{
+    "status": "success",
+    "md_rel_path": "ai_result/综合分析.md",
+    "json_rel_path": "ai_result/各文件分析.json",
+}))
 
 	// 若仍不存在，按失败处理（说明 Python 没生成也没返回）
 	if _, err := os.Stat(mdPath); err != nil {
