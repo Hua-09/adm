@@ -1,18 +1,29 @@
-package api_result
+package apiresult
 
-// Result is the standard JSON response envelope.
-type Result struct {
+import (
+	errmgr "adm_bkd/utils/err_mgr"
+)
+
+type APIResult struct {
+	Success bool        `json:"success"`
 	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
+	Msg     string      `json:"message"`
+	Data    interface{} `json:"data"`
 }
 
-// OK returns a successful result.
-func OK(data interface{}) Result {
-	return Result{Code: 0, Message: "ok", Data: data}
+func NewAPIResult(code int, data interface{}) APIResult {
+	msg := errmgr.ErrStr(code)
+	ret := APIResult{false, code, msg, data}
+	if code == 0 {
+		ret.Success = true
+	}
+	return ret
 }
 
-// Fail returns an error result.
-func Fail(code int, message string) Result {
-	return Result{Code: code, Message: message}
+func NewAPIResultWithStr(code int, msg string, data interface{}) APIResult {
+	ret := APIResult{false, code, msg, data}
+	if code == 0 {
+		ret.Success = true
+	}
+	return ret
 }
