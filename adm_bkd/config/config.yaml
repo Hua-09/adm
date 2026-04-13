@@ -1,0 +1,9 @@
+server:
+  addr: ":8080"
+
+storage:
+  root_dir: "./data"
+
+ai:
+  endpoint: "http://localhost:9000"
+  timeout_seconds: 30
