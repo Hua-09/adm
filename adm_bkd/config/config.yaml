@@ -1,9 +1,34 @@
-server:
-  addr: ":8080"
+app:
+  name: "adm_bkd"
+  version: "1.0.0"
+  host: "0.0.0.0"
+  port: 6677
 
+log:
+  level: "debug"
+
+# 你指定的教学文件库根目录
 storage:
-  root_dir: "./data"
+  rootDir: "/data/teaching_repo"
+  maxUploadMB: 500
+  enableLock: true
+  enableCache: true
+  allowExtList:
+    - pdf
+    - doc
+    - docx
+    - xls
+    - xlsx
+    - png
+    - jpg
+    - jpeg
+    - webp
+    - mp4
+    - mov
+    - avi
+    - txt
+    - md
 
-ai:
-  endpoint: "http://localhost:9000"
-  timeout_seconds: 30
+# 沿用你现有模式：Go 转发 Python FastAPI
+aiServer:
+  apiUrl: "http://127.0.0.1:6678/api/run_model"
