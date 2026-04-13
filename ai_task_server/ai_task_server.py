@@ -2,10 +2,26 @@ from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import os, json, time, glob
+import requests
 
 app = FastAPI(title="AI Task Server", version="1.0.0")
 
-
+def call_llm(api_base: str, api_key: str, model: str, prompt: str) -> str:
+    url = api_base.rstrip("/") + "/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "你是一个文档分析助手，请输出结构化总结。"},
+            {"role": "user", "content": prompt},
+        ],
+        "temperature": 0.2,
+    }
+    r = requests.post(url, headers=headers, json=payload, timeout=120)
+    r.raise_for_status()
+    data = r.json()
+    return data["choices"][0]["message"]["content"]
+    
 class RunModelReq(BaseModel):
     dept: str = Field(..., description="部门，如 自动化系")
     date: str = Field(..., description="日期目录，如 2025-12-04")
