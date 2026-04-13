@@ -51,45 +51,52 @@ def run_model(req: RunModelReq) -> Dict[str, Any]:
     if not docs:
         docs = [{"file": "empty.txt", "text": "No parsed text found. Please check parsed_dir."}]
 
-    # TODO: 在这里接入真正的大模型（OpenAI/通义/智谱/本地模型等）
-    # 先 stub：产出可用的 md + json
-    keywords = []
-    for d in docs:
-        words = [w for w in d["text"].replace("\n", " ").split(" ") if w.strip()]
-        keywords.extend(words[:10])
-    keywords = keywords[:30]
+        # =========================
+    # 1) 组装 Prompt（控制长度：只取每个文件前 N 字）
+    # =========================
+    max_chars_per_file = 8000
+    prompt_parts = []
+    prompt_parts.append("请对以下教学材料进行分析，并输出：\n"
+                        "1) 综合摘要\n"
+                        "2) 关键点（条目化）\n"
+                        "3) 可视化数据（用JSON代码块输出，字段包含 keywords(数组)、numbers(数组)、relations(数组，元素含source/target/label)）\n"
+                        "要求：先输出Markdown正文，再输出一个 ```json ... ``` 的可视化JSON代码块。\n\n")
 
-    md_lines = [
-        f"# 综合分析（{req.dept}/{req.date}/{req.teacher}）",
-        "",
-        "## 摘要",
-        f"- 文本文件数量：{len(docs)}",
-        f"- 关键词示例：{', '.join(keywords[:10])}",
-        "",
-        "## 文件列表",
-    ]
     for d in docs:
-        md_lines.append(f"- {d['file']}")
-    md_content = "\n".join(md_lines) + "\n"
+        text = d["text"][:max_chars_per_file]
+        prompt_parts.append(f"【文件】{d['file']}\n{text}\n\n")
 
-    per_file = []
-    for d in docs:
-        per_file.append(
-            {
-                "file": d["file"],
-                "summary": (d["text"][:200] + "...") if len(d["text"]) > 200 else d["text"],
-                "keywords": keywords[:10],
-            }
-        )
+    prompt = "".join(prompt_parts)
 
+    # =========================
+    # 2) 调用大模型：生成综合Markdown
+    # =========================
+    api_base = os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
+    api_key = os.getenv("LLM_API_KEY", "")
+    model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+
+    if not api_key:
+        # 没配置 key 就直接报错，避免你以为调用成功
+        raise RuntimeError("LLM_API_KEY is empty")
+
+    md_content = call_llm(api_base=api_base, api_key=api_key, model=model, prompt=prompt)
+
+    # =========================
+    # 3) 各文件分析.json：先做一个最简版（后续可让模型也输出每文件JSON）
+    # =========================
     files_json = {
         "dept": req.dept,
         "date": req.date,
         "teacher": req.teacher,
         "generated_at": int(time.time()),
-        "files": per_file,
+        "llm": {"api_base": api_base, "model": model},
+        "files": [
+            {
+                "file": d["file"],
+                "text_len": len(d["text"]),
+            } for d in docs
+        ],
     }
-
     md_path = os.path.join(req.result_dir, "综合分析.md")
     json_path = os.path.join(req.result_dir, "各文件分析.json")
 
