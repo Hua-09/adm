@@ -29,6 +29,5 @@ storage:
     - txt
     - md
 
-# 沿用你现有模式：Go 转发 Python FastAPI
 aiServer:
   apiUrl: "http://127.0.0.1:6678/api/run_model"
