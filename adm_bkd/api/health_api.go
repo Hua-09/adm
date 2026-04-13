@@ -1,16 +1,12 @@
 package api
 
 import (
-	"net/http"
+	apiresult "adm_bkd/utils/api_result"
+	errmgr "adm_bkd/utils/err_mgr"
 
-	"github.com/gin-gonic/gin"
+	"github.com/kataras/iris/v12"
 )
 
-// RegisterHealthAPI registers the health-check route.
-func RegisterHealthAPI(r *gin.Engine) {
-	r.GET("/health", healthHandler)
-}
-
-func healthHandler(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+func HealthCheck(ctx iris.Context) {
+	ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, "pong"))
 }
