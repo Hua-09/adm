@@ -1,32 +1,28 @@
 package storage
 
 import (
-	"fmt"
-	"sync"
+	"os"
+	"path/filepath"
+	"time"
 )
 
-var (
-	mu    sync.RWMutex
-	locks = make(map[string]*sync.Mutex)
-)
-
-// fileLock returns the per-file mutex for the given path, creating it if needed.
-func fileLock(path string) *sync.Mutex {
-	mu.Lock()
-	defer mu.Unlock()
-	if _, ok := locks[path]; !ok {
-		locks[path] = &sync.Mutex{}
+// TryLock 在 teacherDir 下创建 .lock 文件；成功返回 true
+func TryLock(teacherDir string) (bool, error) {
+	lockPath := filepath.Join(teacherDir, ".lock")
+	f, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	if err != nil {
+		// 已存在 -> 认为被锁
+		if os.IsExist(err) {
+			return false, nil
+		}
+		return false, err
 	}
-	return locks[path]
+	defer f.Close()
+
+	_, _ = f.WriteString(time.Now().Format(time.RFC3339))
+	return true, nil
 }
 
-// withFileLock executes fn while holding the exclusive lock for path.
-func withFileLock(path string, fn func() error) error {
-	l := fileLock(path)
-	l.Lock()
-	defer l.Unlock()
-	if err := fn(); err != nil {
-		return fmt.Errorf("locked op on %s: %w", path, err)
-	}
-	return nil
+func Unlock(teacherDir string) {
+	_ = os.Remove(filepath.Join(teacherDir, ".lock"))
 }
