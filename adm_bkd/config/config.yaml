@@ -11,6 +11,7 @@ log:
 storage:
   rootDir: "/data/teaching_repo"
   maxUploadMB: 500
+  aiResultWaitSec: 120
   enableLock: true
   enableCache: true
   allowExtList:

@@ -20,11 +20,12 @@ type AiServer struct {
 
 // StorageConfig 存储配置：无数据库，全部落地到本地目录树
 type StorageConfig struct {
-	RootDir      string `yaml:"rootDir"`      // 教学文件存储库根目录
-	MaxUploadMB  int    `yaml:"maxUploadMB"`  // 上传大小限制（MB）
-	EnableLock   bool   `yaml:"enableLock"`   // 是否启用分析锁
-	EnableCache  bool   `yaml:"enableCache"`  // 是否缓存 viz.json
-	AllowExtList []string `yaml:"allowExtList"` // 允许上传扩展名（小写，不带点）
+	RootDir         string   `yaml:"rootDir"`         // 教学文件存储库根目录
+	MaxUploadMB     int      `yaml:"maxUploadMB"`     // 上传大小限制（MB）
+	AiResultWaitSec int      `yaml:"aiResultWaitSec"` // 等待 AI 结果文件超时（秒）
+	EnableLock      bool     `yaml:"enableLock"`      // 是否启用分析锁
+	EnableCache     bool     `yaml:"enableCache"`     // 是否缓存 viz.json
+	AllowExtList    []string `yaml:"allowExtList"`    // 允许上传扩展名（小写，不带点）
 }
 
 // AppConfig 应用配置
@@ -37,10 +38,10 @@ type AppConfig struct {
 
 // Config 全局配置
 type Config struct {
-	App     AppConfig     `yaml:"app"`
-	Log     LogConfig     `yaml:"log"`
-	AiServer AiServer     `yaml:"aiServer"`
-	Storage StorageConfig `yaml:"storage"`
+	App      AppConfig     `yaml:"app"`
+	Log      LogConfig     `yaml:"log"`
+	AiServer AiServer      `yaml:"aiServer"`
+	Storage  StorageConfig `yaml:"storage"`
 }
 
 var GlobalConfig *Config
@@ -80,6 +81,7 @@ func setDefaults() {
 	// 你的根目录要求
 	viper.SetDefault("storage.rootDir", "/data/teaching_repo")
 	viper.SetDefault("storage.maxUploadMB", 500)
+	viper.SetDefault("storage.aiResultWaitSec", 120)
 	viper.SetDefault("storage.enableLock", true)
 	viper.SetDefault("storage.enableCache", true)
 	viper.SetDefault("storage.allowExtList", []string{
