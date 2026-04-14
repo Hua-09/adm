@@ -5,6 +5,7 @@ import (
 	apiresult "adm_bkd/utils/api_result"
 	errmgr "adm_bkd/utils/err_mgr"
 	"adm_bkd/utils/storage"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,6 +169,10 @@ func TeachFileUpload(ctx iris.Context) {
 		ctx.JSON(apiresult.NewAPIResult(errmgr.Err_http_input_params_empty, nil))
 		return
 	}
+	if !storage.IsSafeName(fileType) {
+		ctx.JSON(apiresult.NewAPIResult(errmgr.Err_storage_path_invalid, nil))
+		return
+	}
 
 	teacherDir, code := storage.JoinUnderRoot(st.RootDir, dept, date, teacher)
 	if code != errmgr.SUCCESS {
@@ -204,7 +209,12 @@ func TeachFileUpload(ctx iris.Context) {
 		return
 	}
 
-	dstAbs := filepath.Join(targetDir, info.Filename)
+	filename := filepath.Base(info.Filename)
+	if !storage.IsSafeName(filename) {
+		ctx.JSON(apiresult.NewAPIResult(errmgr.Err_storage_path_invalid, nil))
+		return
+	}
+	dstAbs := filepath.Join(targetDir, filename)
 
 	sha256Hex, saveErr := storage.SaveMultipartFileWithHash(dstAbs, f)
 	if saveErr != nil {
@@ -214,16 +224,16 @@ func TeachFileUpload(ctx iris.Context) {
 
 	// 更新 meta.json（无数据库）
 	_ = storage.MetaUpsertFile(teacherDir, storage.MetaFileItem{
-		RelPath: filepath.ToSlash(filepath.Join(fileType, info.Filename)),
-		Sha256:  sha256Hex,
-		Size:    info.Size,
-		Ext:     ext,
+		RelPath:   filepath.ToSlash(filepath.Join(fileType, filename)),
+		Sha256:    sha256Hex,
+		Size:      info.Size,
+		Ext:       ext,
 		UpdatedAt: time.Now().Unix(),
 	})
 
 	resp := map[string]interface{}{
 		"abs_path": dstAbs,
-		"rel_path": filepath.ToSlash(filepath.Join(fileType, info.Filename)),
+		"rel_path": filepath.ToSlash(filepath.Join(fileType, filename)),
 		"sha256":   sha256Hex,
 		"size":     info.Size,
 		"ext":      ext,
@@ -245,10 +255,10 @@ type reqAnalyzeCreate struct {
 }
 
 type respAnalyzeStatus struct {
-	Status    string `json:"status"`     // idle/running/success/failed
-	LastError string `json:"last_error"` // 错误信息
-	UpdatedAt int64  `json:"updated_at"`
-	MdRelPath string `json:"md_rel_path"` // ai_result/综合分析.md
+	Status      string `json:"status"`     // idle/running/success/failed
+	LastError   string `json:"last_error"` // 错误信息
+	UpdatedAt   int64  `json:"updated_at"`
+	MdRelPath   string `json:"md_rel_path"`   // ai_result/综合分析.md
 	JsonRelPath string `json:"json_rel_path"` // ai_result/各文件分析.json
 }
 
@@ -292,25 +302,25 @@ func TeachAnalyzeCreate(ctx iris.Context) {
 	// 1) parsed：这里先做 stub（后续可接真实解析器）
 	// 说明：你可以把 pdf/docx/xlsx 转文本的逻辑放在 storage.ParseToText(...) 中
 	if err := storage.ParseToText(teacherDir, req.RelPaths); err != nil {
-    _ = storage.MetaSetStatus(teacherDir, "failed", err.Error())
-    ctx.JSON(apiresult.NewAPIResult(errmgr.Err_storage_write_failed, nil))
-    return
-}
+		_ = storage.MetaSetStatus(teacherDir, "failed", err.Error())
+		ctx.JSON(apiresult.NewAPIResult(errmgr.Err_storage_write_failed, nil))
+		return
+	}
 	// 2) 转发 AI 服务（沿用你现有 aiServer.apiUrl）
 	aiSrv := config.GlobalConfig.GetAiServer()
 
 	// 这里组装给 Python 的 payload：为了兼容你现有 Python 服务，这里先提供通用字段
 	payload := map[string]interface{}{
-		"dept":    req.Dept,
-		"date":    req.Date,
-		"teacher": req.Teacher,
+		"dept":        req.Dept,
+		"date":        req.Date,
+		"teacher":     req.Teacher,
 		"teacher_dir": teacherDir,
-		"parsed_dir": filepath.Join(teacherDir, "parsed"),
-		"result_dir": filepath.Join(teacherDir, "ai_result"),
-		"rel_paths": req.RelPaths,
+		"parsed_dir":  filepath.Join(teacherDir, "parsed"),
+		"result_dir":  filepath.Join(teacherDir, "ai_result"),
+		"rel_paths":   req.RelPaths,
 	}
 
-	aiRespBytes, code2 := storage.ForwardToAiServer(aiSrv.ApiUrl, payload)
+	_, code2 := storage.ForwardToAiServer(aiSrv.ApiUrl, payload)
 	if code2 != errmgr.SUCCESS {
 		_ = storage.MetaSetStatus(teacherDir, "failed", errmgr.ErrStr(code2))
 		ctx.JSON(apiresult.NewAPIResult(code2, nil))
@@ -327,39 +337,26 @@ func TeachAnalyzeCreate(ctx iris.Context) {
 	}
 
 	// Python 负责直接落盘：ai_result/综合分析.md 与 ai_result/各文件分析.json
-mdPath := filepath.Join(teacherDir, "ai_result", "综合分析.md")
-jsonPath := filepath.Join(teacherDir, "ai_result", "各文件分析.json")
+	mdPath := filepath.Join(teacherDir, "ai_result", "综合分析.md")
+	jsonPath := filepath.Join(teacherDir, "ai_result", "各文件分析.json")
 
-// 允许 Python 异步写入：这里简单轮询等待一小段时间（可调）
-waitOk := storage.WaitFiles(mdPath, jsonPath, 60*time.Second)
-if !waitOk {
-    _ = storage.MetaSetStatus(teacherDir, "failed", "AI结果文件未在超时内生成")
-    ctx.JSON(apiresult.NewAPIResult(errmgr.Err_ai_forward_resp_parse, nil))
-    return
-}
-
-_ = storage.MetaSetStatus(teacherDir, "success", "")
-ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, map[string]interface{}{
-    "status": "success",
-    "md_rel_path": "ai_result/综合分析.md",
-    "json_rel_path": "ai_result/各文件分析.json",
-}))
-
-	// 若仍不存在，按失败处理（说明 Python 没生成也没返回）
-	if _, err := os.Stat(mdPath); err != nil {
-		_ = storage.MetaSetStatus(teacherDir, "failed", "综合分析.md not generated")
+	// 允许 Python 异步写入：这里简单轮询等待一小段时间（可调）
+	waitSec := st.AiResultWaitSec
+	if waitSec <= 0 {
+		waitSec = 120
+	}
+	waitOk := storage.WaitFiles(mdPath, jsonPath, time.Duration(waitSec)*time.Second)
+	if !waitOk {
+		_ = storage.MetaSetStatus(teacherDir, "failed", "AI结果文件未在超时内生成")
 		ctx.JSON(apiresult.NewAPIResult(errmgr.Err_ai_forward_resp_parse, nil))
 		return
-	}
-	if _, err := os.Stat(jsonPath); err != nil {
-		// json 不强制，但建议生成；这里不强制失败
 	}
 
 	_ = storage.MetaSetStatus(teacherDir, "success", "")
 
 	ret := map[string]interface{}{
-		"status": "success",
-		"md_rel_path": "ai_result/综合分析.md",
+		"status":        "success",
+		"md_rel_path":   "ai_result/综合分析.md",
 		"json_rel_path": "ai_result/各文件分析.json",
 	}
 	ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, ret))
@@ -392,11 +389,11 @@ func TeachAnalyzeStatus(ctx iris.Context) {
 	}
 
 	resp := respAnalyzeStatus{
-		Status: meta.Status,
-		LastError: meta.LastError,
-		UpdatedAt: meta.UpdatedAt,
-		MdRelPath: "ai_result/综合分析.md",
-		JsonRelPath: "ai_result/各��件分析.json",
+		Status:      meta.Status,
+		LastError:   meta.LastError,
+		UpdatedAt:   meta.UpdatedAt,
+		MdRelPath:   "ai_result/综合分析.md",
+		JsonRelPath: "ai_result/各文件分析.json",
 	}
 	ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, resp))
 }
@@ -430,7 +427,7 @@ func TeachResultMdGet(ctx iris.Context) {
 
 	ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, map[string]interface{}{
 		"md_rel_path": "ai_result/综合分析.md",
-		"content": string(b),
+		"content":     string(b),
 	}))
 }
 
@@ -466,7 +463,7 @@ func TeachResultJsonGet(ctx iris.Context) {
 
 	ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, map[string]interface{}{
 		"json_rel_path": "ai_result/各文件分析.json",
-		"data": obj,
+		"data":          obj,
 	}))
 }
 
@@ -491,13 +488,11 @@ func TeachResultVizGet(ctx iris.Context) {
 	}
 
 	vizPath := filepath.Join(teacherDir, "ai_result", "viz.json")
-	if st.EnableCache {
-		if b, err := os.ReadFile(vizPath); err == nil && len(b) > 0 {
-			var obj interface{}
-			_ = json.Unmarshal(b, &obj)
-			ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, obj))
-			return
-		}
+	if b, err := os.ReadFile(vizPath); err == nil && len(b) > 0 {
+		var obj interface{}
+		_ = json.Unmarshal(b, &obj)
+		ctx.JSON(apiresult.NewAPIResult(errmgr.SUCCESS, obj))
+		return
 	}
 
 	mdPath := filepath.Join(teacherDir, "ai_result", "综合分析.md")

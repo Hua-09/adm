@@ -1,7 +1,6 @@
 package storage
 
 import (
-	apiresult "adm_bkd/utils/api_result"
 	errmgr "adm_bkd/utils/err_mgr"
 	"bytes"
 	"encoding/json"
@@ -36,9 +35,6 @@ func ForwardToAiServer(apiUrl string, payload map[string]interface{}) ([]byte, i
 	if resp.StatusCode != http.StatusOK {
 		return b, errmgr.Err_ai_forward_http_status
 	}
-
-	// 兼容：如果 Python 返回了统一包裹（success/code/message/data），也让上层自己解析
-	_ = apiresult.APIResult{} // 引入以保持与你项目风格一致（非必须）
 
 	return b, errmgr.SUCCESS
 }
